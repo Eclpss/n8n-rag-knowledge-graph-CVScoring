@@ -59,3 +59,21 @@ Run these commands in your terminal to instantly spin up the Graph and Vector da
 **Start Neo4j (Graph Database):**
 ```bash
 docker run -d --name neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:latest
+
+
+**Start ChromaDB (Vector Database):**
+```bash
+docker run -d --name chromadb -p 8000:8000 chromadb/chroma
+
+# Start Ollama on port 11434
+docker run -d --name ollama -p 11434:11434 ollama/ollama
+
+# Download the vector embedding model
+docker exec -it ollama ollama pull nomic-embed-text
+
+# (Optional) Pull the extraction model if you don't have it installed
+docker exec -it ollama ollama pull eclipse
+
+#this is the n8n installaataion!
+docker volume create n8n_data
+docker run -it --rm --name n8n -p 5678:5678 -v n8n_data:/home/node/.n8n docker.n8n.io/n8nio/n8n
