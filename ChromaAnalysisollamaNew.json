@@ -1,0 +1,537 @@
+{
+  "name": "ChromaAnalysis",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "resume",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1184,
+        416
+      ],
+      "id": "97673006-61b2-425e-a7f8-c91a1a37ae17",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/v1/openai/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer DR974GC-MH6MVRJ-MSWGDKS-91Z5EY4"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    \"model\": \"eclipse\",\n    \"messages\": [\n      {\n        \"role\": \"system\",\n        \"content\": \"You are a Fair but Strict HR Recruitment Officer. Analyze the resume content provided.\\n\\nCONTEXT:\\n- CURRENT DATE: January 2026 (Use this to calculate duration for 'Present' jobs).\\n\\nSCORING RULES (Start with 100 points):\\n1. BASE SCORE: 100.\\n2. DEDUCTIONS (Apply these strictly):\\n   - Placeholder Contact Info: DEDUCT 15 points ONLY IF you see \\\"reallygreatsite.com\\\", \\\"123 Anywhere St\\\", \\\"hello@\\\", or \\\"[Your Name]\\\".\\n   - Title Mismatch (Job Title vs Experience): DEDUCT 15 points.\\n   - Vague/Few Skills (< 3): DEDUCT 15 points.\\n   - Very Short Experience (< 1 year): DEDUCT 10 points.\\n   - Strictly Missing Contact Info: DEDUCT 5 points.\\n\\nCRITICAL RECOMMENDATION RULES (You MUST follow this):\\n   - IF Score is 90-100 -> \\\"Hire\\\"\\n   - IF Score is 75-89 -> \\\"Interview\\\"\\n   - IF Score is 0-74  -> \\\"Not Hired\\\" (DO NOT DEVIATE. If score is low, you MUST reject.)\\n\\nOUTPUT ONLY this JSON structure (Reasoning MUST be first):\\n{\\n  \\\"Reasoning\\\": \\\"Explain score calculation\\\",\\n  \\\"Candidate Name\\\": \\\"Name\\\",\\n  \\\"Email\\\": \\\"email@address.com or Unknown\\\",\\n  \\\"Phone\\\": \\\"Phone number or Unknown\\\",\\n  \\\"Lived at\\\": \\\"City, State or Unknown\\\",\\n  \\\"Summary\\\": \\\"1 sentence summary\\\",\\n  \\\"Work Experience\\\": \\\"Single summary string\\\",\\n  \\\"Skills\\\": \\\"Skill A\\\\nSkill B\\\\nSkill C\\\",\\n  \\\"Score\\\": 0,\\n  \\\"Recommendation\\\": \\\"Hire/Interview/Not Hired\\\"\\n}\"\n      },\n      {\n        \"role\": \"user\",\n        \"content\": $json.text\n      }\n    ],\n    \"temperature\": 0.1\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1824,
+        416
+      ],
+      "id": "87c49757-b7ef-4f81-b3eb-e705f8c47ab1",
+      "name": "Traffic Bot"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Get and Clean the Content\nconst rawContent = $input.first().json.choices?.[0]?.message?.content || $input.first().json.content || \"\";\n\n// AGGRESSIVE CLEANING & REPAIR\nlet cleanJson = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();\nconst firstBrace = cleanJson.indexOf('{');\nif (firstBrace !== -1) {\n    cleanJson = cleanJson.substring(firstBrace);\n    if (!cleanJson.trim().endsWith('}')) cleanJson += '}'; \n}\n\n// 2. Parse\nlet data = {};\ntry {\n    data = JSON.parse(cleanJson);\n} catch (e) {\n    try {\n        cleanJson = cleanJson.replace(/,\\s*}$/, '}');\n        data = JSON.parse(cleanJson);\n    } catch (err2) { data = {}; }\n}\n\n// 3. MAP THE FIELDS (UPDATED TO NEW KEYS)\nlet finalName = data[\"Candidate Name\"] || data[\"Candidate_Name\"] || data[\"Name\"] || \"Unknown\";\nlet finalEmail = data[\"Email\"] || \"Unknown\";\nlet finalPhone = data[\"Phone\"] || \"Unknown\";\nlet finalLocation = data[\"Lived at\"] || \"Unknown\";\nlet finalSkills = data[\"Skills\"] || \"N/A\";\nlet finalScore = parseInt(data[\"Score\"]) || 0;\nlet finalRec = data[\"Recommendation\"] || \"Pending\";\nlet finalReason = data[\"Reasoning\"] || \"See Resume\";\n\n// --- LOGIC 1: THE \"INCOMPLETE\" CHECK (UPDATED) ---\n// Now it only rejects if the core profile (Name or Skills) is completely missing.\nif (finalName === \"Unknown\" || finalSkills === \"N/A\") {\n    finalRec = \"Not Hired\";\n    finalScore = 0;\n    finalReason = \"AUTO-REJECTION: Application incomplete or parsing failed.\";\n}\n\n// --- LOGIC 2: THE \"SCORE ENFORCER\" ---\n// 1. RED ZONE: Hard Reject for very low scores (< 60)\nif (finalScore < 60) {\n    finalRec = \"Not Hired\";\n} \n// 2. YELLOW ZONE: The \"Breather\" for decent candidates (60 - 74)\nelse if (finalScore >= 60 && finalScore < 75) {\n    finalRec = \"Waitlist\"; \n}\n// 3. GREEN ZONE: If 75+, we respect the AI's \"Interview\" or \"Hire\" label.\n\n// -----------------------------------------\n\nreturn [{\n    json: {\n        \"Candidate Name\": finalName,\n        \"Email\": finalEmail,\n        \"Phone\": \"'\" + finalPhone,\n        \"Lived at\": finalLocation,\n        \"Summary\": data[\"Summary\"] || \"N/A\",\n        \"Work Experience\": data[\"Work Experience\"] || \"N/A\",\n        \"Skills\": finalSkills,\n        \"Score\": finalScore,\n        \"Recommendation\": finalRec,\n        \"Reasoning\": finalReason\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        416
+      ],
+      "id": "a65f909e-f913-4bfb-941e-ffe57b3f363f",
+      "name": "CodeSaveFile"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1qVbmoXiPKVAz5y1SXcAfmXjQfjDuIEyvUoe6SOAY2UA",
+          "mode": "list",
+          "cachedResultName": "AI Resume Screener",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qVbmoXiPKVAz5y1SXcAfmXjQfjDuIEyvUoe6SOAY2UA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qVbmoXiPKVAz5y1SXcAfmXjQfjDuIEyvUoe6SOAY2UA/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Candidate Name",
+              "displayName": "Candidate Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Contact Info",
+              "displayName": "Contact Info",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Work Experience",
+              "displayName": "Work Experience",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Skills",
+              "displayName": "Skills",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Score",
+              "displayName": "Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Recommendation",
+              "displayName": "Recommendation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Reasoning",
+              "displayName": "Reasoning",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2240,
+        416
+      ],
+      "id": "bd0cf838-4021-4b07-b546-8ef27792eefb",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EbMySbRxz5Hvxj34",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "formTitle": "Submit Your Application",
+        "formDescription": "Please fill out the form below and upload your CV to apply.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Full Name",
+              "placeholder": "e.g., Jane Doe",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "placeholder": "e.g., user@example.com",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "resume",
+              "fieldType": "file",
+              "acceptFileTypes": ".pdf",
+              "requiredField": true
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "appendAttribution": false,
+          "buttonLabel": "Submit Application",
+          "path": "fb65b57a-1f25-41d9-a257-53e8a2eea37a",
+          "customCss": "/* --- ROOT VARIABLES (Dark Professional Theme) --- */\n:root {\n\t/* --- FONT MAPPING --- */\n\t--font-family: 'Inter', sans-serif;\n\t--font-weight-normal: 400;\n\t--font-weight-bold: 600;\n\t--font-size-body: 14px;\n\t--font-size-label: 14px;\n\t--font-size-input: 14px;\n\t--font-size-header: 24px;\n\t--line-height-base: 1.6;\n\n\t/* --- COLOR MAPPING (Dark Slate/Purple Theme) --- */\n\t--color-page-bg: #111827; /* Dark Slate */\n\t--color-card-bg-glass: rgba(29, 39, 53, 0.65); /* Darker, less transparent glass */\n\t--color-card-border-glass: rgba(255, 255, 255, 0.1); /* Subtle light border */\n\t--color-input-bg: #1F2937; /* Slightly lighter than page bg */\n\t--color-header: #F9FAFB; /* Off-white for high contrast */\n\t--color-label: #9CA3AF; /* Light gray for secondary text */\n\t--color-input-text: #F9FAFB;\n\t--color-input-border: #4B5563; /* Mid-gray border */\n\t--color-focus-border: #8B5CF6; /* Vibrant Purple */\n\t--color-link: #8B5CF6;\n\t--color-submit-btn-bg: #8B5CF6;\n\t--color-submit-btn-hover-bg: #7C3AED; /* Darker Purple */\n\t--color-submit-btn-text: #FFFFFF;\n\t--color-error: #F43F5E; /* Vibrant Rose for errors */\n\t--color-required: #F43F5E;\n\n\t/* --- DIMENSIONS & SPACING --- */\n\t--container-width: 550px;\n\t--border-radius-card: 16px;\n\t--border-radius-input: 8px;\n\t--padding-card: 32px;\n\t--padding-form-input: 14px;\n\t--submit-btn-height: 48px;\n\t--checkbox-size: 20px;\n\n\t/* --- EFFECTS & ANIMATIONS --- */\n\t--box-shadow-card: 0 16px 50px rgba(0, 0, 0, 0.3); /* Deeper shadow for dark mode */\n\t--transition-speed: 0.25s;\n\t--animation-speed-fast: 0.2s;\n\t--animation-speed-normal: 0.4s;\n}\n\n/* === KEYFRAME ANIMATIONS === */\n@keyframes fadeInSlideUp {\n    from {\n        opacity: 0;\n        transform: translateY(20px);\n    }\n    to {\n        opacity: 1;\n        transform: translateY(0);\n    }\n}\n\n@keyframes backgroundPan {\n\t0% { background-position: 0% 50%; }\n\t50% { background-position: 100% 50%; }\n\t100% { background-position: 0% 50%; }\n}\n\n/* === GLOBAL LAYOUT & STYLES === */\nbody {\n    /* Dynamic animated aurora gradient background */\n    background-color: var(--color-page-bg);\n    background-image:\n        radial-gradient(at 20% 100%, hsla(278, 60%, 45%, 0.2) 0px, transparent 50%),\n        radial-gradient(at 80% 0%, hsla(215, 60%, 40%, 0.2) 0px, transparent 50%),\n        radial-gradient(at 50% 50%, hsla(259, 70%, 55%, 0.1) 0px, transparent 50%);\n    background-size: 200% 200%;\n    animation: backgroundPan 15s ease-in-out infinite;\n\n    line-height: var(--line-height-base);\n    font-size: var(--font-size-body);\n    color: var(--color-label); /* Set default text color for body */\n\n    /* Flexbox properties for true centering */\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    min-height: 100vh;\n    margin: 0;\n    overflow-x: hidden; /* Prevent horizontal scroll from large gradients */\n}\n\n.form-container {\n    padding: 2rem 1rem;\n}\n\n/* === THE GLASSMORPHISM CARD === */\n.card {\n    background: var(--color-card-bg-glass);\n    backdrop-filter: blur(16px) saturate(150%);\n    -webkit-backdrop-filter: blur(16px) saturate(150%);\n    border-radius: var(--border-radius-card);\n    border: 1px solid var(--color-card-border-glass);\n    box-shadow: var(--box-shadow-card);\n    transition: box-shadow var(--animation-speed-normal) ease;\n\n    /* Card Load-in Animation */\n    animation: fadeInSlideUp 0.6s ease-out forwards;\n}\n.card:hover {\n    box-shadow: 0 0 50px rgba(139, 92, 246, 0.15); /* Subtle purple glow on hover */\n}\n\n/* === FORM ELEMENT STYLING === */\n.form-input {\n    border-radius: var(--border-radius-input);\n    transition: border-color var(--transition-speed) ease, box-shadow var(--transition-speed) ease;\n    background-color: var(--color-input-bg);\n    border: 1px solid var(--color-input-border);\n    color: var(--color-input-text);\n}\n.form-input::placeholder {\n    color: var(--color-label);\n    opacity: 0.7;\n}\n.form-input:focus {\n    /* Glow effect on focus */\n    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25);\n    border-color: var(--color-focus-border);\n    outline: none; /* Remove default outline */\n}\n\ntextarea.form-input {\n    min-height: 150px;\n    resize: vertical;\n}\n\n/* Submit Button */\nbutton.submit-btn {\n    transition: all var(--transition-speed) ease-in-out;\n    font-family: var(--font-family);\n    font-weight: var(--font-weight-bold);\n    color: var(--color-submit-btn-text);\n    background-color: var(--color-submit-btn-bg);\n    border-radius: var(--border-radius-input);\n    border: none;\n    cursor: pointer;\n}\nbutton.submit-btn:hover {\n    background-color: var(--color-submit-btn-hover-bg);\n    /* Add a lift and glow effect on hover */\n    transform: translateY(-3px);\n    box-shadow: 0 8px 25px rgba(139, 92, 246, 0.3);\n}\n\n/* === MODERN CHECKBOX STYLING === */\nlabel.multiselect-label {\n    display: flex;\n    align-items: center;\n    cursor: pointer;\n    position: relative;\n    padding: 8px 0;\n}\nlabel.multiselect-label span {\n    padding-left: 12px;\n    color: var(--color-label);\n    transition: color var(--transition-speed) ease;\n}\nlabel.multiselect-label:hover span {\n    color: var(--color-input-text); /* Lighten label text on hover */\n}\nlabel.multiselect-label input[type=\"checkbox\"] {\n    position: absolute;\n    opacity: 0;\n    cursor: pointer;\n    height: 0;\n    width: 0;\n}\nlabel.multiselect-label span::before {\n    content: '';\n    position: absolute;\n    left: 0;\n    top: 50%;\n    transform: translateY(-50%);\n    width: var(--checkbox-size);\n    height: var(--checkbox-size);\n    background-color: var(--color-input-bg);\n    border: 1px solid var(--color-input-border);\n    border-radius: 6px;\n    transition: all var(--animation-speed-fast) ease-in-out;\n}\nlabel.multiselect-label input[type=\"checkbox\"]:checked + span::before {\n    background-color: var(--color-focus-border);\n    border-color: var(--color-focus-border);\n    background-image: url(\"data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e\");\n    background-position: center;\n    background-repeat: no-repeat;\n    /* Animation for the checkmark appearing */\n    transform: translateY(-50%) scale(1.05);\n}\nlabel.multiselect-label input[type=\"checkbox\"]:focus-visible + span::before {\n    /* Use a glow for focus instead of a harsh outline */\n    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.3);\n}"
+        }
+      },
+      "id": "538ec8bf-3a09-4116-9470-4bd3fd09ae2c",
+      "cid": "Ikx1Y2FzIFBleXJpbiI",
+      "name": "Application Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "creator": "Lucas Peyrin",
+      "position": [
+        944,
+        416
+      ],
+      "webhookId": "fb65b57a-1f25-41d9-a257-53e8a2eea37a",
+      "typeVersion": 2.2,
+      "notes": "© 2025 Lucas Peyrin"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "chromaCollection": {
+          "__rl": true,
+          "value": "eclipse_local",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreChromaDB",
+      "typeVersion": 1.3,
+      "position": [
+        1392,
+        640
+      ],
+      "id": "1bc027a4-d079-442f-bd00-76521f25c923",
+      "name": "Chroma Vector Store",
+      "credentials": {
+        "chromaSelfHostedApi": {
+          "id": "H7Zxy2vMLaMY7faB",
+          "name": "ChromaDB Self-Hosted account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "textSplittingMode": "custom",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        1328,
+        992
+      ],
+      "id": "89a21ba2-656d-4602-8d7e-10a177fc71ae",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        1408,
+        1184
+      ],
+      "id": "bd601940-50cf-4e87-a46d-0e6587138e6c",
+      "name": "Recursive Character Text Splitter"
+    },
+    {
+      "parameters": {
+        "mode": "load",
+        "chromaCollection": {
+          "__rl": true,
+          "value": "eclipse_local",
+          "mode": "id"
+        },
+        "prompt": "={{ $node[\"Extract from File\"].json[\"text\"] }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreChromaDB",
+      "typeVersion": 1.3,
+      "position": [
+        1536,
+        48
+      ],
+      "id": "549a540b-1300-4e1e-a5e3-267881abcc10",
+      "name": "reader",
+      "credentials": {
+        "chromaSelfHostedApi": {
+          "id": "H7Zxy2vMLaMY7faB",
+          "name": "ChromaDB Self-Hosted account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-embedding-001"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        720,
+        208
+      ],
+      "id": "b0ab86ee-af51-45be-8d4a-859dc0076aff",
+      "name": "Embeddings Google Gemini1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "BnZMr3GcKUlZ7VJB",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:7474/db/neo4j/tx/commit",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    \"statements\": [\n      {\n        \"statement\": \"MERGE (p:Person {name: $name}) MERGE (e:Email {address: $email}) MERGE (p)-[:HAS_EMAIL]->(e) MERGE (ph:Phone {number: $phone}) MERGE (p)-[:HAS_PHONE]->(ph) MERGE (l:Location {name: $location}) MERGE (p)-[:LIVED_AT]->(l) WITH p UNWIND split($skills, '\\n') AS rawSkill WITH p, trim(replace(rawSkill, '-', '')) AS finalSkill WHERE size(finalSkill) > 1 MERGE (s:Skill {name: finalSkill}) MERGE (p)-[:HAS_SKILL]->(s)\",\n        \"parameters\": {\n          \"name\": JSON.parse($node['Traffic Bot'].json.choices[0].message.content)['Candidate Name'] || 'Unknown',\n          \"email\": JSON.parse($node['Traffic Bot'].json.choices[0].message.content)['Email'] || 'Unknown',\n          \"phone\": JSON.parse($node['Traffic Bot'].json.choices[0].message.content)['Phone'] || 'Unknown',\n          \"location\": JSON.parse($node['Traffic Bot'].json.choices[0].message.content)['Lived at'] || 'Unknown',\n          \"skills\": JSON.parse($node['Traffic Bot'].json.choices[0].message.content)['Skills'] || ''\n        }\n      }\n    ]\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2000,
+        224
+      ],
+      "id": "ac0bb9d0-ecc4-427d-bd96-80b2b6f12a35",
+      "name": "neo4j",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "x2qj60hs74mCMZmX",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "nomic-embed-text:latest"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        1536,
+        336
+      ],
+      "id": "4f2baf86-f769-4f2e-926f-b49af1fadd79",
+      "name": "Embeddings Ollama",
+      "credentials": {
+        "ollamaApi": {
+          "id": "03d0OeH0TYcgmYxh",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-embedding-001"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        720,
+        384
+      ],
+      "id": "03459a44-5663-4e34-b174-0842199acf89",
+      "name": "Embeddings Google Gemini",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "BnZMr3GcKUlZ7VJB",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "nomic-embed-text:latest"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        864
+      ],
+      "id": "69a37e03-f966-453e-a829-fc8cf4502b31",
+      "name": "Embeddings Ollama1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "03d0OeH0TYcgmYxh",
+          "name": "Ollama account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Traffic Bot",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Chroma Vector Store",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "reader",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Traffic Bot": {
+      "main": [
+        [
+          {
+            "node": "CodeSaveFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "neo4j",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CodeSaveFile": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Application Form": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recursive Character Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Chroma Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini1": {
+      "ai_embedding": [
+        []
+      ]
+    },
+    "reader": {
+      "ai_vectorStore": [
+        []
+      ]
+    },
+    "Embeddings Ollama": {
+      "ai_embedding": [
+        [
+          {
+            "node": "reader",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini": {
+      "ai_embedding": [
+        []
+      ]
+    },
+    "Embeddings Ollama1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Chroma Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "f82ae4cc-571e-4182-962f-8ebcdd99deec",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ad5504343a5f421906e6aa66647ddf0153334c3144c6a463cecbcd1cf90a1178"
+  },
+  "id": "WNy0za2MBgpM0NCo",
+  "tags": []
+}
